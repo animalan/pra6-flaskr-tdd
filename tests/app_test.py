@@ -77,9 +77,16 @@ def test_messages(client):
     assert b"<strong>HTML</strong> allowed here" in rv.data
 
 
+# Note: no post is created here, so the delete matches 0 rows. That is not an
+# error in SQL/SQLAlchemy, so status is still 1 once logged in. The first
+# request (logged out) is rejected by login_required with status 0.
 def test_delete_message(client):
     """Ensure the messages are being deleted"""
-    rv = client.get('/delete/1')
+    rv = client.get("/delete/1")
+    data = json.loads(rv.data)
+    assert data["status"] == 0
+    login(client, app.config["USERNAME"], app.config["PASSWORD"])
+    rv = client.get("/delete/1")
     data = json.loads(rv.data)
     assert data["status"] == 1
 
@@ -99,3 +106,21 @@ def test_search(client):
     rv = client.get("/search/", query_string={"query": "nomatch"})
     # rv = client.get("/search/?query=nomatch")
     assert b"TESTSEARCH" not in rv.data
+
+
+def test_login_required(client):
+    """Ensure deleting without logging in is blocked"""
+    rv = client.get("/delete/1")
+    assert rv.status_code == 401
+    data = json.loads(rv.data)
+    assert data["status"] == 0
+    assert data["message"] == "Please log in."
+
+
+def test_delete_removes_post(client):
+    """Ensure a logged-in user can delete a post"""
+    login(client, app.config["USERNAME"], app.config["PASSWORD"])
+    client.post("/add", data=dict(title="DELETEME", text="x"), follow_redirects=True)
+    client.get("/delete/1")
+    rv = client.get("/")
+    assert b"DELETEME" not in rv.data
